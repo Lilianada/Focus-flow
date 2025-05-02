@@ -6,35 +6,52 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T)
   // Create a ref for the initial value to avoid dependency changes
   const initialValueRef = useRef(initialValue)
   
-  // State to store our value
-  // Initialize state with a function to avoid unnecessary re-renders
-  const [storedValue, setStoredValue] = useState<T>(() => {
-    if (typeof window === "undefined") {
-      return initialValue
-    }
+  // Use a ref to track hydration status
+  const hydrated = useRef(false)
+  
+  // State to store our value - ALWAYS initialize with initialValue during SSR
+  // This prevents hydration mismatches between server and client
+  const [storedValue, setStoredValue] = useState<T>(initialValue)
+  
+  // Effect to load the value from localStorage AFTER hydration
+  // This ensures server and client render the same initial content
+  useEffect(() => {
+    // Skip this effect during SSR
+    if (typeof window === "undefined") return
+    
+    // Only run this once after hydration
+    if (hydrated.current) return
+    hydrated.current = true
     
     try {
       // Get from local storage by key
       const item = window.localStorage.getItem(key)
-      // Parse stored json or return initialValue
-      return item ? JSON.parse(item) : initialValue
+      // Parse stored json or keep initialValue
+      if (item) {
+        const parsedValue = JSON.parse(item)
+        setStoredValue(parsedValue)
+      } else {
+        // If no value in localStorage, set it with the initial value
+        window.localStorage.setItem(key, JSON.stringify(initialValue))
+      }
     } catch (error) {
       console.warn(`Error reading localStorage key "${key}":`, error)
-      return initialValue
+      // On error, ensure localStorage has the initial value
+      try {
+        window.localStorage.setItem(key, JSON.stringify(initialValue))
+      } catch (e) {
+        // Ignore secondary errors
+      }
     }
-  })
-
-  // Flag to track if the component is mounted
-  const isMounted = useRef(false)
-
+  }, [])
+  
   // Handle changes to the key
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true
-      return
-    }
+    // Skip during SSR
+    if (typeof window === "undefined") return
+    // Skip if not hydrated yet
+    if (!hydrated.current) return
     
-    // This effect should only run when the key changes, not on initial mount
     try {
       const item = window.localStorage.getItem(key)
       if (item) {
@@ -46,69 +63,85 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T)
     } catch (error) {
       console.warn(`Error reading localStorage key "${key}" after key change:`, error)
     }
-
-    return () => {
-      // No need to set isMounted to false here as we're using it to detect key changes
-    }
   }, [key])
 
   // Return a wrapped version of useState's setter function that ...
   // ... persists the new value to localStorage.
   // Use useCallback to ensure the function reference is stable
   const setValue = useCallback((value: T) => {
+    // Skip if not hydrated or during SSR
+    if (typeof window === "undefined" || !hydrated.current) {
+      console.warn("Attempted to set localStorage value before hydration")
+      setStoredValue(value instanceof Function ? value(storedValue) : value)
+      return
+    }
+    
     try {
       // Allow value to be a function so we have the same API as useState
       setStoredValue((prevValue) => {
         const valueToStore = value instanceof Function ? value(prevValue) : value
         
-        // Save to local storage
-        if (typeof window !== "undefined") {
+        // Save to local storage with error handling
+        try {
           window.localStorage.setItem(key, JSON.stringify(valueToStore))
 
           // If we're offline, queue for sync when back online
           if (!navigator.onLine) {
             queueForSync(key, valueToStore)
           }
+        } catch (storageError) {
+          console.warn(`Error saving to localStorage: ${storageError}`)
         }
         
         return valueToStore
       })
     } catch (error) {
-      console.warn(`Error setting localStorage key "${key}":`, error)
+      console.warn(`Error in setValue for key "${key}":`, error)
     }
-  }, [key])
+  }, [key, storedValue])
 
   // Queue data for sync when back online
   // Memoize this function to prevent unnecessary re-renders
   const queueForSync = useCallback((key: string, data: any) => {
-    if (key === "tasks") {
-      // Queue tasks for sync
-      const syncQueue = JSON.parse(localStorage.getItem("taskSyncQueue") || "[]")
-      syncQueue.push({ timestamp: Date.now(), data })
-      localStorage.setItem("taskSyncQueue", JSON.stringify(syncQueue))
+    // Skip during SSR
+    if (typeof window === "undefined") return
+    
+    try {
+      if (key === "tasks") {
+        // Queue tasks for sync
+        const syncQueue = JSON.parse(localStorage.getItem("taskSyncQueue") || "[]")
+        syncQueue.push({ timestamp: Date.now(), data })
+        localStorage.setItem("taskSyncQueue", JSON.stringify(syncQueue))
 
-      // Register for sync when back online
-      if ("serviceWorker" in navigator && "SyncManager" in window) {
-        navigator.serviceWorker.ready.then((registration) => {
-          registration.sync.register("sync-tasks").catch((err) => {
-            console.error("Background sync registration failed:", err)
+        // Register for sync when back online - with error handling
+        if ("serviceWorker" in navigator && "SyncManager" in window) {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.sync.register("sync-tasks").catch((err) => {
+              console.error("Background sync registration failed:", err)
+            })
+          }).catch(err => {
+            console.warn("Service worker not ready for sync:", err)
           })
-        })
-      }
-    } else if (key === "notes") {
-      // Queue notes for sync
-      const syncQueue = JSON.parse(localStorage.getItem("noteSyncQueue") || "[]")
-      syncQueue.push({ timestamp: Date.now(), data })
-      localStorage.setItem("noteSyncQueue", JSON.stringify(syncQueue))
+        }
+      } else if (key === "notes") {
+        // Queue notes for sync
+        const syncQueue = JSON.parse(localStorage.getItem("noteSyncQueue") || "[]")
+        syncQueue.push({ timestamp: Date.now(), data })
+        localStorage.setItem("noteSyncQueue", JSON.stringify(syncQueue))
 
-      // Register for sync when back online
-      if ("serviceWorker" in navigator && "SyncManager" in window) {
-        navigator.serviceWorker.ready.then((registration) => {
-          registration.sync.register("sync-notes").catch((err) => {
-            console.error("Background sync registration failed:", err)
+        // Register for sync when back online - with error handling
+        if ("serviceWorker" in navigator && "SyncManager" in window) {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.sync.register("sync-notes").catch((err) => {
+              console.error("Background sync registration failed:", err)
+            })
+          }).catch(err => {
+            console.warn("Service worker not ready for sync:", err)
           })
-        })
+        }
       }
+    } catch (error) {
+      console.warn("Error in queueForSync:", error)
     }
   }, []) // Empty dependency array as this doesn't depend on component state
 
