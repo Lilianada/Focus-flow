@@ -54,6 +54,17 @@ export default function RootLayout({
                 />
               </ClientOnly>
               
+              {/* Backdrop for mobile sidebar */}
+              <ClientOnly>
+                {sidebarOpen && (
+                  <div 
+                    className="fixed inset-0 z-40 bg-black/50 md:hidden" 
+                    onClick={() => setSidebarOpen(false)}
+                    aria-hidden="true" 
+                  />
+                )}
+              </ClientOnly>
+
               {/* Main Content */}
               <main className="flex-1 overflow-auto pt-14 md:pt-0">{children}</main>
             </div>

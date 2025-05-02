@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useState, useEffect } from "react"
 import { useMediaQuery } from "@/hooks/use-media-query"
+import { motion, AnimatePresence } from "framer-motion"
 
 type NavItem = {
   href: string
@@ -117,32 +118,26 @@ export function Sidebar({ isMobile = false, isOpen = false, onClose }: SidebarPr
     return <div className="hidden md:flex w-16 flex-col border-r bg-background"></div>
   }
 
-  return (
-    <div 
-      className={cn(
-        "flex flex-col border-r bg-background transition-all duration-300",
-        // Mobile sidebar styling
-        isMobileView ? (
-          cn(
-            "fixed inset-y-0 left-0 z-50",
-            isOpen ? "translate-x-0" : "-translate-x-full",
-            "w-64 shadow-lg"
-          )
-        ) : (
-          // Desktop sidebar styling
-          expanded ? "w-48" : "w-16"
-        ),
-        // Hide on mobile when not open
-        isMobileView && !isOpen && "hidden",
-        // Always show on desktop
-        !isMobileView && "md:flex"
-      )}
-    >
-      <div className="flex h-14 items-center justify-center border-b">
+  // Common sidebar structure (content)
+  const sidebarContent = (isForMobile: boolean = false) => (
+    <>
+      <div className="flex h-14 items-center justify-between border-b px-4">
         <Link href="/" className="flex items-center justify-center gap-2">
           <Icons.logo className="h-6 w-6" />
-          {expanded && <span className="font-semibold">FocusFlow</span>}
+          {(expanded || isForMobile) && <span className="font-semibold">FocusFlow</span>}
         </Link>
+        {/* Show close button on mobile at the top */}
+        {isForMobile && onClose && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={onClose}
+            className="h-9 w-9"
+            aria-label="Close menu"
+          >
+            <Icons.close className="h-5 w-5" />
+          </Button>
+        )}
       </div>
       <div className="flex-1 overflow-auto py-6">
         <nav className="grid gap-4 px-2">
@@ -157,21 +152,21 @@ export function Sidebar({ isMobile = false, isOpen = false, onClose }: SidebarPr
                     <Link href={item.href} passHref>
                       <Button
                         variant="ghost"
-                        size={expanded ? "default" : "icon"}
+                        size={(expanded || isForMobile) ? "default" : "icon"}
                         className={cn(
                           "rounded-md transition-all",
-                          expanded ? "justify-start w-full" : "h-10 w-10",
+                          (expanded || isForMobile) ? "justify-start w-full" : "h-10 w-10",
                           isActive && "bg-accent"
                         )}
                         aria-label={item.label}
                         aria-current={isActive ? "page" : undefined}
                       >
-                        <Icon className={cn("h-5 w-5", expanded && "mr-2")} />
-                        {expanded && <span>{item.label}</span>}
+                        <Icon className={cn("h-5 w-5", (expanded || isForMobile) && "mr-2")} />
+                        {(expanded || isForMobile) && <span>{item.label}</span>}
                       </Button>
                     </Link>
                   </TooltipTrigger>
-                  {!expanded && (
+                  {!(expanded || isForMobile) && (
                     <TooltipContent side="right">
                       <div className="flex flex-col">
                         <span>{item.label}</span>
@@ -187,23 +182,46 @@ export function Sidebar({ isMobile = false, isOpen = false, onClose }: SidebarPr
           </TooltipProvider>
         </nav>
       </div>
-      <div className="border-t p-2 flex items-center justify-between mx-auto">
-        {/* Only show theme toggle on desktop, mobile has it in the header */}
+      <div className="border-t p-2 flex items-center justify-center">
+        {/* Only show theme toggle on desktop */}
         {!isMobileView && <ThemeToggle />}
-        
-        {/* Show close button on mobile */}
-        {isMobileView && onClose && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={onClose}
-            className="h-9 w-9"
-            aria-label="Close menu"
-          >
-            <Icons.close className="h-5 w-5" />
-          </Button>
-        )}
       </div>
-    </div>
+    </>
+  );
+
+
+  return (
+    <>
+      {/* Mobile Sidebar with Framer Motion */}
+      <AnimatePresence>
+        {isMobileView && isOpen && (
+          <motion.div
+            key="mobile-sidebar"
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ type: "tween", ease: "easeInOut", duration: 0.3 }}
+            className={cn(
+              "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background shadow-lg"
+            )}
+            aria-modal="true" 
+            role="dialog"
+          >
+            {sidebarContent(true)}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Sidebar */}
+      <div 
+        className={cn(
+          "hidden md:flex flex-col border-r bg-background transition-all duration-300 ease-in-out",
+          // Desktop sidebar styling
+          expanded ? "w-48" : "w-16",
+        )}
+      >
+        {sidebarContent(false)}
+      </div>
+    </>
   )
 }
